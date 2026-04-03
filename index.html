@@ -1,0 +1,1229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PACS Security Auditor</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #070b0f;
+    --bg2: #0d1318;
+    --bg3: #111820;
+    --border: rgba(0,200,120,0.12);
+    --border2: rgba(0,200,120,0.25);
+    --green: #00c878;
+    --green-dim: rgba(0,200,120,0.08);
+    --green-glow: rgba(0,200,120,0.15);
+    --red: #ff4757;
+    --orange: #ff6b35;
+    --yellow: #ffd32a;
+    --blue: #2ed6ff;
+    --text: #e8eef4;
+    --text-dim: #6b8299;
+    --mono: 'JetBrains Mono', monospace;
+    --display: 'Syne', sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid scanlines overlay ─────────────────── */
+  body::before {
+    content:'';
+    position:fixed;
+    inset:0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,200,120,0.015) 2px,
+      rgba(0,200,120,0.015) 4px
+    );
+    pointer-events:none;
+    z-index:1000;
+  }
+
+  /* ── Header ─────────────────────────────────── */
+  header {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    position: sticky;
+    top:0;
+    z-index: 100;
+  }
+
+  .logo {
+    display:flex;
+    align-items:center;
+    gap: 12px;
+  }
+
+  .logo-icon {
+    width: 32px; height: 32px;
+    border: 1.5px solid var(--green);
+    border-radius: 6px;
+    display:flex; align-items:center; justify-content:center;
+    color: var(--green);
+    font-size:16px;
+    animation: pulse-border 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-border {
+    0%,100% { box-shadow: 0 0 0 0 rgba(0,200,120,0.3); }
+    50% { box-shadow: 0 0 0 6px rgba(0,200,120,0); }
+  }
+
+  .logo-text { font-family: var(--display); font-weight:800; font-size:16px; letter-spacing:0.05em; }
+  .logo-sub { font-size:10px; color: var(--text-dim); letter-spacing:0.15em; text-transform:uppercase; }
+
+  .header-status {
+    display:flex;
+    align-items:center;
+    gap: 20px;
+  }
+
+  .status-dot {
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:11px;
+    color: var(--text-dim);
+  }
+
+  .dot {
+    width:7px; height:7px;
+    border-radius:50%;
+    background: var(--green);
+    animation: blink 2s ease-in-out infinite;
+  }
+
+  @keyframes blink {
+    0%,100% { opacity:1; }
+    50% { opacity:0.3; }
+  }
+
+  /* ── Layout ─────────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: calc(100vh - 57px);
+  }
+
+  /* ── Sidebar ─────────────────────────────────── */
+  nav {
+    border-right: 1px solid var(--border);
+    padding: 20px 0;
+    background: var(--bg2);
+  }
+
+  .nav-section {
+    padding: 8px 20px 4px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  .nav-item {
+    display:flex;
+    align-items:center;
+    gap: 10px;
+    padding: 9px 20px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+
+  .nav-item:hover { color: var(--text); background: var(--green-dim); }
+
+  .nav-item.active {
+    color: var(--green);
+    border-left-color: var(--green);
+    background: var(--green-dim);
+  }
+
+  .nav-icon { width: 14px; text-align:center; }
+
+  /* ── Main content ────────────────────────────── */
+  main {
+    padding: 24px 28px;
+    overflow-y: auto;
+  }
+
+  /* ── Views ───────────────────────────────────── */
+  .view { display:none; }
+  .view.active { display:block; animation: fadeIn 0.2s ease; }
+
+  @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+  /* ── Page title ──────────────────────────────── */
+  .page-header {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    margin-bottom: 24px;
+  }
+
+  .page-title { font-family: var(--display); font-size: 22px; font-weight:800; }
+  .page-sub { font-size: 11px; color: var(--text-dim); margin-top:2px; letter-spacing:0.05em; }
+
+  /* ── Buttons ─────────────────────────────────── */
+  .btn {
+    padding: 9px 18px;
+    border-radius: 6px;
+    border: 1px solid var(--border2);
+    background: var(--green-dim);
+    color: var(--green);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.05em;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+  }
+
+  .btn:hover { background: rgba(0,200,120,0.15); border-color: var(--green); }
+  .btn:active { transform: scale(0.98); }
+
+  .btn-danger {
+    border-color: rgba(255,71,87,0.3);
+    background: rgba(255,71,87,0.08);
+    color: var(--red);
+  }
+
+  .btn-danger:hover { background: rgba(255,71,87,0.15); border-color: var(--red); }
+
+  .btn-scan {
+    background: var(--green);
+    color: var(--bg);
+    border-color: var(--green);
+    font-weight:700;
+    padding: 10px 24px;
+  }
+
+  .btn-scan:hover { background: #00e68a; }
+
+  /* ── Cards ────────────────────────────────────── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  .card-title {
+    font-family: var(--display);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 16px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+
+  /* ── KPI grid ────────────────────────────────── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .kpi {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    position:relative;
+    overflow:hidden;
+  }
+
+  .kpi::before {
+    content:'';
+    position:absolute;
+    top:0; left:0; right:0;
+    height: 2px;
+  }
+
+  .kpi.critical::before { background: var(--red); }
+  .kpi.high::before { background: var(--orange); }
+  .kpi.medium::before { background: var(--yellow); }
+  .kpi.score::before { background: var(--green); }
+
+  .kpi-value {
+    font-family: var(--display);
+    font-size: 32px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .kpi.critical .kpi-value { color: var(--red); }
+  .kpi.high .kpi-value { color: var(--orange); }
+  .kpi.medium .kpi-value { color: var(--yellow); }
+  .kpi.score .kpi-value { color: var(--green); }
+
+  .kpi-label { font-size: 11px; color: var(--text-dim); text-transform:uppercase; letter-spacing:0.1em; }
+  .kpi-sub { font-size: 10px; color: var(--text-dim); margin-top:4px; }
+
+  /* ── Vuln table ──────────────────────────────── */
+  .vuln-list { display:flex; flex-direction:column; gap:8px; }
+
+  .vuln-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    display:grid;
+    grid-template-columns: 80px 1fr 120px 140px;
+    gap: 16px;
+    align-items:center;
+    transition: border-color 0.15s;
+    cursor: pointer;
+  }
+
+  .vuln-item:hover { border-color: var(--border2); }
+
+  .severity-badge {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform:uppercase;
+  }
+
+  .sev-CRITICAL { background: rgba(255,71,87,0.15); color: var(--red); border:1px solid rgba(255,71,87,0.3); }
+  .sev-HIGH { background: rgba(255,107,53,0.15); color: var(--orange); border:1px solid rgba(255,107,53,0.3); }
+  .sev-MEDIUM { background: rgba(255,211,42,0.12); color: var(--yellow); border:1px solid rgba(255,211,42,0.3); }
+  .sev-LOW { background: rgba(46,214,255,0.1); color: var(--blue); border:1px solid rgba(46,214,255,0.25); }
+
+  .vuln-id { font-size: 10px; color: var(--text-dim); font-family: var(--mono); }
+  .vuln-title { font-size: 12px; font-weight:500; }
+  .vuln-desc { font-size: 11px; color: var(--text-dim); margin-top:2px; }
+  .vuln-hipaa { font-size: 10px; color: var(--green); font-family: var(--mono); }
+  .vuln-cve { font-size: 10px; color: var(--text-dim); }
+
+  /* ── HIPAA controls ──────────────────────────── */
+  .hipaa-grid {
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .control-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    position:relative;
+  }
+
+  .control-card.fail { border-left: 3px solid var(--red); }
+  .control-card.pass { border-left: 3px solid var(--green); }
+  .control-card.unknown { border-left: 3px solid var(--text-dim); }
+
+  .control-status {
+    position:absolute;
+    top:12px; right:14px;
+    font-size:10px;
+    font-weight:700;
+    letter-spacing:0.1em;
+  }
+
+  .control-card.fail .control-status { color: var(--red); }
+  .control-card.pass .control-status { color: var(--green); }
+
+  .control-section { font-size:11px; color: var(--text-dim); margin-bottom:3px; font-family:var(--mono); }
+  .control-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .control-type { font-size:10px; color: var(--text-dim); }
+
+  .control-findings {
+    margin-top: 10px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+  }
+
+  .control-finding-item {
+    font-size:11px;
+    color: var(--text-dim);
+    padding: 6px 10px;
+    background: rgba(255,71,87,0.05);
+    border-radius:4px;
+    border-left: 2px solid rgba(255,71,87,0.3);
+  }
+
+  /* ── Scan form ───────────────────────────────── */
+  .scan-form {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+
+  .form-row {
+    display:grid;
+    grid-template-columns: 1fr 200px auto;
+    gap: 12px;
+    align-items: end;
+  }
+
+  .form-field label {
+    display:block;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform:uppercase;
+    margin-bottom:6px;
+  }
+
+  .form-field input, .form-field select {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline:none;
+    transition: border-color 0.15s;
+  }
+
+  .form-field input:focus, .form-field select:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 0 2px rgba(0,200,120,0.1);
+  }
+
+  .toggle-row {
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-top:12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .toggle-label { font-size:12px; color: var(--text-dim); }
+
+  input[type="checkbox"] { accent-color: var(--green); width:14px; height:14px; cursor:pointer; }
+
+  /* ── Terminal / log ──────────────────────────── */
+  .terminal {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.8;
+    min-height: 140px;
+    max-height: 300px;
+    overflow-y:auto;
+  }
+
+  .log-line { display:flex; gap:12px; }
+  .log-time { color: var(--text-dim); min-width:60px; }
+  .log-level-INFO { color: var(--blue); }
+  .log-level-WARN { color: var(--yellow); }
+  .log-level-CRIT { color: var(--red); }
+  .log-level-OK { color: var(--green); }
+  .log-msg { color: var(--text); }
+
+  /* ── Progress bar ────────────────────────────── */
+  .progress-track {
+    height: 3px;
+    background: var(--border);
+    border-radius:2px;
+    margin: 12px 0;
+    overflow:hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 2px;
+    transition: width 0.5s ease;
+    box-shadow: 0 0 8px rgba(0,200,120,0.5);
+  }
+
+  /* ── Chart bars ──────────────────────────────── */
+  .chart-container {
+    display:flex;
+    align-items: flex-end;
+    gap: 10px;
+    height: 120px;
+    padding: 0 0 24px;
+    position:relative;
+  }
+
+  .chart-container::after {
+    content:'';
+    position:absolute;
+    bottom:24px;
+    left:0; right:0;
+    height:1px;
+    background: var(--border);
+  }
+
+  .bar-group {
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:4px;
+    flex:1;
+  }
+
+  .bar {
+    width: 100%;
+    border-radius: 3px 3px 0 0;
+    transition: height 0.6s cubic-bezier(.34,1.56,.64,1);
+    position:relative;
+    min-height: 2px;
+  }
+
+  .bar-label { font-size: 10px; color: var(--text-dim); text-align:center; position:absolute; bottom:-20px; width:100%; }
+
+  /* ── Port status ─────────────────────────────── */
+  .port-grid { display:grid; grid-template-columns: repeat(5, 1fr); gap:10px; }
+
+  .port-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius:8px;
+    padding:14px;
+    text-align:center;
+    transition: all 0.2s;
+  }
+
+  .port-card.open { border-color: rgba(255,71,87,0.3); background: rgba(255,71,87,0.05); }
+  .port-card.open-tls { border-color: rgba(0,200,120,0.3); background: rgba(0,200,120,0.05); }
+  .port-card.closed { opacity:0.5; }
+
+  .port-num { font-family: var(--display); font-size:18px; font-weight:800; margin-bottom:4px; }
+  .port-status { font-size:10px; text-transform:uppercase; letter-spacing:0.1em; }
+  .port-card.open .port-num { color: var(--red); }
+  .port-card.open .port-status { color: var(--red); }
+  .port-card.open-tls .port-num { color: var(--green); }
+  .port-card.open-tls .port-status { color: var(--green); }
+  .port-card.closed .port-status { color: var(--text-dim); }
+
+  /* ── Report ──────────────────────────────────── */
+  .report-header {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius:10px;
+    padding:24px;
+    margin-bottom:16px;
+    display:grid;
+    grid-template-columns: 1fr auto;
+    gap:20px;
+    align-items:center;
+  }
+
+  .risk-badge {
+    padding: 8px 20px;
+    border-radius:8px;
+    font-family: var(--display);
+    font-size: 22px;
+    font-weight:800;
+    letter-spacing:0.05em;
+  }
+
+  .risk-CRITICAL { background: rgba(255,71,87,0.15); color: var(--red); border:1px solid rgba(255,71,87,0.4); }
+  .risk-HIGH { background: rgba(255,107,53,0.15); color: var(--orange); border:1px solid rgba(255,107,53,0.4); }
+  .risk-MEDIUM { background: rgba(255,211,42,0.1); color: var(--yellow); border:1px solid rgba(255,211,42,0.3); }
+  .risk-LOW { background: rgba(0,200,120,0.1); color: var(--green); border:1px solid rgba(0,200,120,0.3); }
+
+  .summary-text { font-size:12px; line-height:1.8; color: var(--text-dim); }
+
+  /* ── Exploit results ─────────────────────────── */
+  .exploit-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius:8px;
+    padding:16px;
+    margin-bottom:10px;
+  }
+
+  .exploit-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .exploit-name { font-size:13px; font-weight:600; }
+  .exploit-result { font-size:11px; color: var(--text-dim); line-height:1.7; }
+  .exploit-data { margin-top:10px; padding:10px; background: var(--bg); border-radius:6px; }
+  .data-row { display:grid; grid-template-columns: 140px 1fr; gap:8px; font-size:11px; padding:3px 0; border-bottom: 1px solid var(--border); }
+  .data-row:last-child { border:none; }
+  .data-key { color: var(--text-dim); }
+  .data-val { color: var(--green); font-family:var(--mono); }
+
+  /* ── Scroll customization ────────────────────── */
+  ::-webkit-scrollbar { width:5px; height:5px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius:2px; }
+
+  /* ── Responsive ──────────────────────────────── */
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; }
+    nav { display:none; }
+    .kpi-grid { grid-template-columns: 1fr 1fr; }
+    .hipaa-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">⬡</div>
+    <div>
+      <div class="logo-text">PACS-AUDIT</div>
+      <div class="logo-sub">Security Intelligence Platform</div>
+    </div>
+  </div>
+  <div class="header-status">
+    <div class="status-dot"><span class="dot"></span>API Connected</div>
+    <div class="status-dot" style="color:#ffd32a">▲ 4 Vulnerabilities Active</div>
+  </div>
+</header>
+
+<div class="app">
+  <nav>
+    <div class="nav-section">Recon</div>
+    <div class="nav-item active" onclick="showView('dashboard')">
+      <span class="nav-icon">◈</span> Dashboard
+    </div>
+    <div class="nav-item" onclick="showView('scan')">
+      <span class="nav-icon">⊹</span> Run Scan
+    </div>
+    <div class="nav-item" onclick="showView('ports')">
+      <span class="nav-icon">◻</span> Port Status
+    </div>
+
+    <div class="nav-section" style="margin-top:12px">Analysis</div>
+    <div class="nav-item" onclick="showView('vulns')">
+      <span class="nav-icon">⚡</span> Vulnerabilities
+    </div>
+    <div class="nav-item" onclick="showView('exploits')">
+      <span class="nav-icon">☠</span> Exploit Results
+    </div>
+    <div class="nav-item" onclick="showView('hipaa')">
+      <span class="nav-icon">⊛</span> HIPAA Controls
+    </div>
+
+    <div class="nav-section" style="margin-top:12px">Output</div>
+    <div class="nav-item" onclick="showView('report')">
+      <span class="nav-icon">▤</span> Pentest Report
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- ── DASHBOARD ─────────────────────────────── -->
+    <div class="view active" id="view-dashboard">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Security Dashboard</div>
+          <div class="page-sub">Target: 192.168.1.100 — DCM4CHEE v5.32 — Scanned: just now</div>
+        </div>
+        <button class="btn btn-scan" onclick="showView('scan')">▶ New Scan</button>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi critical">
+          <div class="kpi-value" id="kpi-critical">2</div>
+          <div class="kpi-label">Critical</div>
+          <div class="kpi-sub">Immediate action required</div>
+        </div>
+        <div class="kpi high">
+          <div class="kpi-value" id="kpi-high">3</div>
+          <div class="kpi-label">High</div>
+          <div class="kpi-sub">Remediate within 7 days</div>
+        </div>
+        <div class="kpi medium">
+          <div class="kpi-value" id="kpi-medium">1</div>
+          <div class="kpi-label">Medium</div>
+          <div class="kpi-sub">Plan remediation</div>
+        </div>
+        <div class="kpi score">
+          <div class="kpi-value" id="kpi-score">28.6%</div>
+          <div class="kpi-label">HIPAA Score</div>
+          <div class="kpi-sub">2 of 7 controls passing</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-title">⬡ Severity Distribution</div>
+          <div class="chart-container" id="sev-chart">
+            <div class="bar-group">
+              <div class="bar" style="height:80px;background:var(--red)" id="bar-c">
+                <span class="bar-label">CRIT</span>
+              </div>
+            </div>
+            <div class="bar-group">
+              <div class="bar" style="height:60px;background:var(--orange)" id="bar-h">
+                <span class="bar-label">HIGH</span>
+              </div>
+            </div>
+            <div class="bar-group">
+              <div class="bar" style="height:20px;background:var(--yellow)" id="bar-m">
+                <span class="bar-label">MED</span>
+              </div>
+            </div>
+            <div class="bar-group">
+              <div class="bar" style="height:10px;background:var(--blue)" id="bar-l">
+                <span class="bar-label">LOW</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">◎ HIPAA Control Status</div>
+          <div style="display:flex;flex-direction:column;gap:8px" id="hipaa-mini">
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:0">
+        <div class="card-title">⚡ Top Vulnerabilities</div>
+        <div class="vuln-list" id="dashboard-vulns"></div>
+      </div>
+    </div>
+
+    <!-- ── SCAN ───────────────────────────────────── -->
+    <div class="view" id="view-scan">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Run Security Scan</div>
+          <div class="page-sub">Authorized targets only — private network ranges enforced</div>
+        </div>
+      </div>
+
+      <div class="scan-form">
+        <div class="form-row">
+          <div class="form-field">
+            <label>Target Host / IP</label>
+            <input type="text" id="scan-host" value="192.168.1.100" placeholder="192.168.1.x or hostname">
+          </div>
+          <div class="form-field">
+            <label>Port Range</label>
+            <select id="scan-ports">
+              <option value="all">All DICOM Ports</option>
+              <option value="104">104 (Standard)</option>
+              <option value="11112">11112 (Secondary)</option>
+              <option value="2762">2762 (TLS)</option>
+            </select>
+          </div>
+          <button class="btn btn-scan" onclick="startDemoScan()">▶ Scan</button>
+        </div>
+        <div class="toggle-row">
+          <input type="checkbox" id="run-exploits" checked>
+          <span class="toggle-label">Run exploitation tests (C-FIND, AE title bypass, tag injection)</span>
+        </div>
+      </div>
+
+      <div class="card" id="scan-progress-card" style="display:none">
+        <div class="card-title">◌ Scan Progress</div>
+        <div class="progress-track"><div class="progress-fill" id="progress-bar" style="width:0%"></div></div>
+        <div class="terminal" id="scan-log"></div>
+      </div>
+    </div>
+
+    <!-- ── PORT STATUS ─────────────────────────────── -->
+    <div class="view" id="view-ports">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Port Status</div>
+          <div class="page-sub">DICOM service discovery results</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">◻ DICOM Port Scan — 192.168.1.100</div>
+        <div class="port-grid">
+          <div class="port-card open">
+            <div class="port-num">104</div>
+            <div class="port-status">Open · No TLS</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:6px">AE: DCM4CHEE</div>
+          </div>
+          <div class="port-card open">
+            <div class="port-num">11112</div>
+            <div class="port-status">Open · No TLS</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:6px">AE: DCM4CHEE</div>
+          </div>
+          <div class="port-card closed">
+            <div class="port-num">2762</div>
+            <div class="port-status">Closed</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:6px">DICOM TLS</div>
+          </div>
+          <div class="port-card closed">
+            <div class="port-num">2761</div>
+            <div class="port-status">Closed</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:6px">DICOM ISCL</div>
+          </div>
+          <div class="port-card closed">
+            <div class="port-num">4006</div>
+            <div class="port-status">Closed</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:6px">Alt DICOM</div>
+          </div>
+        </div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--red);margin-bottom:6px">⚠ Finding: TLS not enabled on any open port</div>
+          <div style="font-size:11px;color:var(--text-dim)">DICOM TLS should be configured on port 2762 per DICOM PS3.15 Annex B. All patient data on ports 104 and 11112 is transmitted as plaintext and is interceptable by network sniffing.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── VULNERABILITIES ────────────────────────── -->
+    <div class="view" id="view-vulns">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Vulnerabilities</div>
+          <div class="page-sub">6 findings — mapped to HIPAA and NIST controls</div>
+        </div>
+        <button class="btn" onclick="showView('report')">▤ Generate Report</button>
+      </div>
+      <div class="vuln-list" id="vuln-full-list"></div>
+    </div>
+
+    <!-- ── EXPLOITS ────────────────────────────────── -->
+    <div class="view" id="view-exploits">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Exploit Results</div>
+          <div class="page-sub">Active exploitation tests — simulating attacker techniques</div>
+        </div>
+      </div>
+      <div id="exploit-list"></div>
+    </div>
+
+    <!-- ── HIPAA ──────────────────────────────────── -->
+    <div class="view" id="view-hipaa">
+      <div class="page-header">
+        <div>
+          <div class="page-title">HIPAA Technical Safeguards</div>
+          <div class="page-sub">45 CFR § 164.312 — Gap Analysis</div>
+        </div>
+        <div class="risk-badge risk-CRITICAL" id="hipaa-risk">CRITICAL</div>
+      </div>
+      <div class="hipaa-grid" id="hipaa-full"></div>
+    </div>
+
+    <!-- ── REPORT ─────────────────────────────────── -->
+    <div class="view" id="view-report">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Pentest Report</div>
+          <div class="page-sub">Export-ready security assessment</div>
+        </div>
+        <button class="btn" onclick="exportReport()">↓ Export JSON</button>
+      </div>
+
+      <div class="report-header">
+        <div>
+          <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;letter-spacing:0.1em;text-transform:uppercase">Executive Summary</div>
+          <div class="summary-text" id="exec-summary"></div>
+        </div>
+        <div class="risk-badge risk-CRITICAL">CRITICAL RISK</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">▤ All Findings</div>
+        <div id="report-vuln-list" class="vuln-list"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">▤ Remediation Priority</div>
+        <div id="remediation-list"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────
+// DEMO DATA — mirrors what the Python backend returns
+// ─────────────────────────────────────────────────────
+const DEMO = {
+  scan_results: [
+    {
+      host: "192.168.1.100", port: 104, is_open: true, service_name: "DICOM",
+      tls_enabled: false, anonymous_access: true, ae_title: "DCM4CHEE",
+      vulnerabilities: [
+        { id: "DICOM-002", title: "Unencrypted DICOM transmission", severity: "HIGH",
+          description: "DICOM data on port 104 is plaintext. Patient images/metadata interceptable via MITM.",
+          hipaa_ref: "164.312(e)(1)", nist_ref: "SC-8, SC-28",
+          remediation: "Enable DICOM TLS (port 2762) per DICOM PS3.15 Annex B" },
+        { id: "DICOM-003", title: "No authentication required", severity: "CRITICAL",
+          description: "PACS accepts anonymous connections. Any host can query all patient records.",
+          hipaa_ref: "164.312(d)", nist_ref: "IA-2, IA-3",
+          remediation: "Configure AE title whitelisting and require TLS client certificates" },
+        { id: "DICOM-004", title: "Standard DICOM port exposed", severity: "LOW",
+          description: "Default DICOM port 104 accessible from untrusted networks.",
+          hipaa_ref: "164.312(a)(1)", nist_ref: "SC-7",
+          remediation: "Restrict port 104 to clinical VLAN using firewall ACLs" }
+      ]
+    },
+    {
+      host: "192.168.1.100", port: 11112, is_open: true, service_name: "DICOM",
+      tls_enabled: false, anonymous_access: true, ae_title: "DCM4CHEE",
+      vulnerabilities: [
+        { id: "DICOM-001", title: "Anonymous C-ECHO accepted", severity: "MEDIUM",
+          description: "PACS responds to C-ECHO without authentication — confirms active service.",
+          hipaa_ref: "164.312(d)", nist_ref: "IA-3",
+          remediation: "Restrict C-ECHO to whitelisted AE titles only" }
+      ]
+    }
+  ],
+  exploit_results: [
+    { test_name: "Anonymous C-FIND Patient Query", success: true, severity: "CRITICAL",
+      finding: "Retrieved 247 patient records without authentication. Full PHI database is exposed to any host on the network.",
+      hipaa_ref: "164.312(a)(1), 164.312(d)",
+      data_exposed: [
+        { PatientID: "PT-10021", PatientName: "DOE^JOHN", PatientBirthDate: "19681103" },
+        { PatientID: "PT-10022", PatientName: "SMITH^JANE", PatientBirthDate: "19751205" },
+        { PatientID: "PT-10023", PatientName: "BROWN^ROBERT", PatientBirthDate: "19550822" }
+      ]
+    },
+    { test_name: "AE Title Bypass", success: true, severity: "HIGH",
+      finding: "PACS accepted connection with spoofed AE title 'ANY-SCP'. No AE title whitelist is enforced.",
+      hipaa_ref: "164.312(d)", data_exposed: ["Accepted AE title: 'ANY-SCP'"] },
+    { test_name: "Wildcard Patient Enumeration", success: true, severity: "HIGH",
+      finding: "Wildcard C-FIND returned 500+ studies. Entire PACS study list is enumerable by any unauthenticated host.",
+      hipaa_ref: "164.312(a)(1)", data_exposed: ["500+ studies exposed"] },
+    { test_name: "DICOM Tag Injection", success: false, severity: "MEDIUM",
+      finding: "Tag injection payloads generated. PACS requires live testing against authorized target to confirm exploitability.",
+      hipaa_ref: "164.312(c)(1)", data_exposed: [] }
+  ],
+  compliance_report: {
+    target: "192.168.1.100",
+    compliance_score: 28.6,
+    risk_rating: "CRITICAL",
+    critical_count: 2,
+    high_count: 3,
+    medium_count: 1,
+    low_count: 1,
+    executive_summary: "Security assessment of 192.168.1.100 identified 7 vulnerabilities (2 Critical, 3 High, 1 Medium, 1 Low). HIPAA compliance score: 28.6%. 5 of 7 required Technical Safeguard controls are failing. Overall risk rating: CRITICAL. Immediate remediation required for transmission security (164.312(e)(1)) and access control (164.312(d)) deficiencies.",
+    controls: {
+      "164.312(a)(1)": { section: "164.312(a)(1)", title: "Access Control", requirement_type: "Required",
+        status: "FAIL", findings: [{title:"No authentication required",severity:"CRITICAL"},{title:"Standard DICOM port exposed",severity:"LOW"}],
+        remediation: ["Implement AE title whitelisting on PACS","Require client certificate authentication","Deploy network segmentation — DICOM on clinical VLAN only","Use RBAC in DCM4CHEE"] },
+      "164.312(a)(2)(i)": { section: "164.312(a)(2)(i)", title: "Unique User Identification", requirement_type: "Required",
+        status: "FAIL", findings: [{title:"No authentication required",severity:"CRITICAL"}],
+        remediation: ["Disable shared/generic DICOM AE titles","Assign unique AE titles per workstation","Integrate PACS with Active Directory or LDAP"] },
+      "164.312(b)": { section: "164.312(b)", title: "Audit Controls", requirement_type: "Required",
+        status: "FAIL", findings: [{title:"Insufficient audit logging",severity:"HIGH"}],
+        remediation: ["Enable DCM4CHEE audit logging (DICOM Audit Trail)","Ship events to SIEM (Splunk/ELK)","Log all C-FIND, C-STORE, C-MOVE operations","Retain audit logs for minimum 6 years"] },
+      "164.312(c)(1)": { section: "164.312(c)(1)", title: "Integrity", requirement_type: "Required",
+        status: "PASS", findings: [],
+        remediation: ["Enable DICOM file integrity verification (SHA-256)","Implement write-once storage","Deploy DICOM validation on ingest"] },
+      "164.312(d)": { section: "164.312(d)", title: "Person/Entity Authentication", requirement_type: "Required",
+        status: "FAIL", findings: [{title:"No authentication required",severity:"CRITICAL"},{title:"AE Title Bypass",severity:"HIGH"}],
+        remediation: ["Require TLS mutual authentication","Implement DICOM TLS with X.509 certificates","Enable DCM4CHEE user authentication","Deploy MFA for PACS admin console"] },
+      "164.312(e)(1)": { section: "164.312(e)(1)", title: "Transmission Security", requirement_type: "Required",
+        status: "FAIL", findings: [{title:"Unencrypted DICOM transmission",severity:"HIGH"}],
+        remediation: ["Enable DICOM TLS on port 2762","Disable plain DICOM on port 104 in production","Use VPN for inter-facility DICOM","Enforce TLS 1.2+ only"] },
+      "164.514(b)": { section: "164.514(b)", title: "De-identification of PHI", requirement_type: "Required",
+        status: "PASS", findings: [],
+        remediation: ["Implement DICOM de-identification pipeline","Use dcm4che de-identification tool","Validate against DICOM PS3.15 Appendix E"] }
+    }
+  }
+};
+
+// Collect all vulns
+const allVulns = [];
+DEMO.scan_results.forEach(r => allVulns.push(...r.vulnerabilities));
+
+// ─────────────────────────────────────────────────────
+// VIEW ROUTING
+// ─────────────────────────────────────────────────────
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.getAttribute('onclick')?.includes(`'${name}'`)) n.classList.add('active');
+  });
+}
+
+// ─────────────────────────────────────────────────────
+// SEVERITY BADGE
+// ─────────────────────────────────────────────────────
+function sevBadge(s) {
+  return `<span class="severity-badge sev-${s}">${s}</span>`;
+}
+
+// ─────────────────────────────────────────────────────
+// RENDER: DASHBOARD
+// ─────────────────────────────────────────────────────
+function renderDashboard() {
+  const cr = DEMO.compliance_report;
+  document.getElementById('kpi-critical').textContent = cr.critical_count;
+  document.getElementById('kpi-high').textContent = cr.high_count;
+  document.getElementById('kpi-medium').textContent = cr.medium_count;
+  document.getElementById('kpi-score').textContent = cr.compliance_score + '%';
+
+  // HIPAA mini
+  const hipaaEl = document.getElementById('hipaa-mini');
+  hipaaEl.innerHTML = '';
+  Object.values(cr.controls).forEach(c => {
+    const color = c.status === 'FAIL' ? 'var(--red)' : c.status === 'PASS' ? 'var(--green)' : 'var(--text-dim)';
+    hipaaEl.innerHTML += `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:11px;color:var(--text-dim)">${c.section}</span>
+        <span style="font-size:11px;color:${color};font-weight:600">${c.status}</span>
+      </div>`;
+  });
+
+  // Dashboard vulns (top 3)
+  const el = document.getElementById('dashboard-vulns');
+  el.innerHTML = '';
+  allVulns.slice(0, 3).forEach(v => {
+    el.innerHTML += renderVulnItem(v);
+  });
+}
+
+function renderVulnItem(v) {
+  return `
+    <div class="vuln-item" onclick="showView('vulns')">
+      <div>${sevBadge(v.severity)}</div>
+      <div>
+        <div class="vuln-id">${v.id}</div>
+        <div class="vuln-title">${v.title}</div>
+        <div class="vuln-desc">${v.description.substring(0, 90)}...</div>
+      </div>
+      <div class="vuln-hipaa">HIPAA ${v.hipaa_ref}</div>
+      <div class="vuln-cve">${v.nist_ref ? 'NIST: ' + v.nist_ref : ''}</div>
+    </div>`;
+}
+
+// ─────────────────────────────────────────────────────
+// RENDER: VULNS
+// ─────────────────────────────────────────────────────
+function renderVulns() {
+  const el = document.getElementById('vuln-full-list');
+  el.innerHTML = '';
+  allVulns.forEach(v => {
+    el.innerHTML += `
+      <div class="vuln-item" style="grid-template-columns:80px 1fr 160px 160px">
+        <div>${sevBadge(v.severity)}</div>
+        <div>
+          <div class="vuln-id">${v.id}</div>
+          <div class="vuln-title">${v.title}</div>
+          <div class="vuln-desc">${v.description}</div>
+        </div>
+        <div>
+          <div class="vuln-hipaa">HIPAA ${v.hipaa_ref}</div>
+          <div class="vuln-cve" style="margin-top:3px">${v.nist_ref ? 'NIST: '+v.nist_ref : ''}</div>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);line-height:1.6">${v.remediation}</div>
+      </div>`;
+  });
+}
+
+// ─────────────────────────────────────────────────────
+// RENDER: EXPLOITS
+// ─────────────────────────────────────────────────────
+function renderExploits() {
+  const el = document.getElementById('exploit-list');
+  el.innerHTML = '';
+  DEMO.exploit_results.forEach(e => {
+    const resultLabel = e.success ?
+      `<span style="color:var(--red);font-weight:700">✗ VULNERABLE</span>` :
+      `<span style="color:var(--green);font-weight:700">✓ NOT EXPLOITED</span>`;
+
+    let dataHtml = '';
+    if (e.data_exposed && e.data_exposed.length > 0 && typeof e.data_exposed[0] === 'object') {
+      dataHtml = `<div class="exploit-data">
+        <div style="font-size:10px;color:var(--text-dim);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.1em">Exposed PHI (sample)</div>
+        ${e.data_exposed.map(r => `
+          <div class="data-row"><span class="data-key">Patient ID</span><span class="data-val">${r.PatientID}</span></div>
+          <div class="data-row"><span class="data-key">Name</span><span class="data-val">${r.PatientName}</span></div>
+          <div class="data-row"><span class="data-key">DOB</span><span class="data-val">${r.PatientBirthDate}</span></div>
+        `).join('')}
+      </div>`;
+    }
+
+    el.innerHTML += `
+      <div class="exploit-item">
+        <div class="exploit-header">
+          <div>
+            ${sevBadge(e.severity)}
+            <span class="exploit-name" style="margin-left:10px">${e.test_name}</span>
+          </div>
+          ${resultLabel}
+        </div>
+        <div class="exploit-result">${e.finding}</div>
+        <div style="font-size:10px;color:var(--green);margin-top:6px;font-family:var(--mono)">HIPAA: ${e.hipaa_ref}</div>
+        ${dataHtml}
+      </div>`;
+  });
+}
+
+// ─────────────────────────────────────────────────────
+// RENDER: HIPAA
+// ─────────────────────────────────────────────────────
+function renderHipaa() {
+  const el = document.getElementById('hipaa-full');
+  el.innerHTML = '';
+  Object.values(DEMO.compliance_report.controls).forEach(c => {
+    const cls = c.status.toLowerCase();
+    let findingsHtml = '';
+    if (c.findings.length > 0) {
+      findingsHtml = `<div class="control-findings">
+        ${c.findings.map(f => `<div class="control-finding-item">${sevBadge(f.severity)} ${f.title}</div>`).join('')}
+      </div>`;
+    }
+    let remHtml = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.08em">Remediation</div>
+      ${c.remediation.map(r => `<div style="font-size:11px;color:var(--text-dim);padding:3px 0;padding-left:10px;border-left:2px solid var(--border2)">→ ${r}</div>`).join('')}
+    </div>`;
+
+    el.innerHTML += `
+      <div class="control-card ${cls}">
+        <div class="control-status">${c.status}</div>
+        <div class="control-section">${c.section}</div>
+        <div class="control-title">${c.title}</div>
+        <div class="control-type">${c.requirement_type}</div>
+        ${findingsHtml}
+        ${remHtml}
+      </div>`;
+  });
+}
+
+// ─────────────────────────────────────────────────────
+// RENDER: REPORT
+// ─────────────────────────────────────────────────────
+function renderReport() {
+  document.getElementById('exec-summary').textContent = DEMO.compliance_report.executive_summary;
+
+  const el = document.getElementById('report-vuln-list');
+  el.innerHTML = '';
+  allVulns.forEach(v => {
+    el.innerHTML += renderVulnItem(v);
+  });
+
+  const remEl = document.getElementById('remediation-list');
+  remEl.innerHTML = '';
+  const priority = [
+    { title: "1. Enable DICOM TLS immediately", detail: "Configure TLS on port 2762. Disable plaintext DICOM on port 104. This addresses CVE-2019-11687 and HIPAA 164.312(e)(1).", severity: "CRITICAL" },
+    { title: "2. Implement AE title authentication", detail: "Whitelist approved AE titles in DCM4CHEE. Configure X.509 client certificates for all DICOM connections.", severity: "CRITICAL" },
+    { title: "3. Enable DICOM audit logging", detail: "Configure DCM4CHEE to emit DICOM Audit Trail messages. Ship to SIEM. Retain for 6+ years.", severity: "HIGH" },
+    { title: "4. Network segmentation", detail: "Move all DICOM services to dedicated clinical VLAN. Firewall all DICOM ports from untrusted segments.", severity: "HIGH" },
+    { title: "5. Integrate LDAP/AD authentication", detail: "Assign unique credentials per user. Disable shared AE titles. Enable RBAC in DCM4CHEE admin.", severity: "MEDIUM" }
+  ];
+  priority.forEach(p => {
+    remEl.innerHTML += `
+      <div style="padding:14px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          ${sevBadge(p.severity)}
+          <span style="font-size:13px;font-weight:600">${p.title}</span>
+        </div>
+        <div style="font-size:12px;color:var(--text-dim);padding-left:74px">${p.detail}</div>
+      </div>`;
+  });
+}
+
+// ─────────────────────────────────────────────────────
+// DEMO SCAN ANIMATION
+// ─────────────────────────────────────────────────────
+function startDemoScan() {
+  const host = document.getElementById('scan-host').value || '192.168.1.100';
+  const card = document.getElementById('scan-progress-card');
+  const bar = document.getElementById('progress-bar');
+  const log = document.getElementById('scan-log');
+
+  card.style.display = 'block';
+  log.innerHTML = '';
+  bar.style.width = '0%';
+
+  const steps = [
+    [0, 'INFO', `Initializing scan against ${host}`],
+    [300, 'INFO', 'TCP connect: port 104... OPEN'],
+    [600, 'WARN', 'Port 104: TLS not detected — plaintext DICOM'],
+    [900, 'INFO', 'Sending DICOM A-ASSOCIATE-RQ (anonymous)'],
+    [1200, 'CRIT', 'Anonymous association ACCEPTED — DICOM-003'],
+    [1500, 'INFO', 'TCP connect: port 11112... OPEN'],
+    [1800, 'WARN', 'Port 11112: No TLS — DICOM-002'],
+    [2100, 'INFO', 'TCP connect: port 2762... CLOSED'],
+    [2400, 'INFO', 'Running C-FIND exploitation test...'],
+    [2700, 'CRIT', 'C-FIND returned 247 patient records — CRITICAL'],
+    [3000, 'INFO', 'Testing AE title bypass...'],
+    [3300, 'CRIT', "AE title 'ANY-SCP' accepted — DICOM-003"],
+    [3600, 'INFO', 'Running HIPAA compliance mapping...'],
+    [3900, 'WARN', '5 of 7 HIPAA controls failing'],
+    [4200, 'OK', 'Scan complete. Risk rating: CRITICAL'],
+  ];
+
+  const progSteps = [0, 5, 15, 25, 35, 45, 50, 55, 65, 75, 80, 85, 90, 95, 100];
+
+  steps.forEach(([delay, level, msg], i) => {
+    setTimeout(() => {
+      const time = new Date().toTimeString().slice(0, 8);
+      log.innerHTML += `<div class="log-line">
+        <span class="log-time">${time}</span>
+        <span class="log-level-${level}">[${level}]</span>
+        <span class="log-msg">${msg}</span>
+      </div>`;
+      log.scrollTop = log.scrollHeight;
+      bar.style.width = progSteps[i] + '%';
+    }, delay);
+  });
+
+  setTimeout(() => {
+    setTimeout(() => showView('vulns'), 800);
+  }, 4500);
+}
+
+// ─────────────────────────────────────────────────────
+// EXPORT
+// ─────────────────────────────────────────────────────
+function exportReport() {
+  const data = JSON.stringify(DEMO, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `pacs-audit-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────
+renderDashboard();
+renderVulns();
+renderExploits();
+renderHipaa();
+renderReport();
+</script>
+</body>
+</html>
