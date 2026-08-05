@@ -39,6 +39,11 @@ PACS Security Auditor is a full-stack platform that:
 
 ---
 
+## Images 
+
+<img width="1919" height="914" alt="image" src="https://github.com/user-attachments/assets/56b8344b-27fb-416f-b12d-d963625d54d6" />
+
+---
 ## Architecture
 
 ```
